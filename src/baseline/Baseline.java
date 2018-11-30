@@ -3,6 +3,7 @@ package baseline;
 import java.io.IOException;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Security;
@@ -18,8 +19,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 
-import bftsmart.reconfiguration.util.ECDSAKeyLoader;
-import bftsmart.reconfiguration.util.RSAKeyLoader;
+import keyloader.ECDSAKeyLoader;
+import keyloader.RSAKeyLoader;
+import keyloader.SunECKeyLoader;
 
 public class Baseline {
 
@@ -31,26 +33,31 @@ public class Baseline {
 	static PublicKey publicKey;
 	static PrivateKey privateKey;
 	static AtomicInteger fim;
-	static int cut;
+	static int cut=-1;
+	static boolean showProgress=false;
 	static String signBaseline;
 	static String typeBaseline;
 	static boolean both = false,  parallel = false, sequential = false;
-	static boolean all = false, ecdsa = false, rsa = false;
+	static boolean all = false, ecdsa = false, rsa = false, sunEC = false;
 	static ECDSAKeyLoader ecdsaKeyLoader;
 	static RSAKeyLoader rsaKeyLoader;
-	//static SunECKeyLoader sunECKeyLoader;
+	static SunECKeyLoader sunECKeyLoader;
 	
 	public static void main(String[] args)throws NoSuchAlgorithmException, InvalidKeyException,
-	SignatureException, InvalidKeySpecException, CertificateException, IOException {
+	SignatureException, InvalidKeySpecException, CertificateException, IOException, NoSuchProviderException {
 		if (args.length == 4) {
 			toVerify = Integer.parseInt(args[0]);
-			cut = toVerify / Integer.parseInt(args[1]);
+			showProgress = Boolean.parseBoolean(args[1]);
+			if(showProgress)
+				cut = (int)Math.round(toVerify * 0.25);
 			signBaseline = args[2];
 			typeBaseline = args[3];
 		} else {
 			System.out.println("Usage: java -jar baseline.jar <iterations> "
-					+ "<% ~ progress> <signature: all | ecdsa | rsa> <type: both | parallel | sequential>");
-			System.out.println("Example: java -jar baseline.jar 100000 20 rsa parallel");
+					+ "<show progress true|false> "
+					+ "<signature: all | ecdsa | rsa | sunec> "
+					+ "<type: both | parallel | sequential>");
+			System.out.println("Example: java -jar baseline.jar 100000 20000 rsa parallel");
 			System.exit(1);
 		}
 
@@ -59,7 +66,7 @@ public class Baseline {
 			data[i] = (byte) rnd.nextInt(1500);
 		}
 
-		switch (typeBaseline) {
+		switch (typeBaseline.toLowerCase()) {
 		case "parallel":
 			parallel = true;
 			break;
@@ -78,96 +85,89 @@ public class Baseline {
 		case "rsa":
 			rsa = true;
 			break;
+		case "sunec":
+			sunEC = true;
+			break;
 		default:
+			System.out.println("\n#### Setting default test, all combinations. #### \n");
 			all = true;
 			break;
 		}
 		if(all) {
-			rsaTest();
-			ecdsaTest();
-		}else if (rsa) {
-			rsaTest();
+			doTest("RSA");
+			doTest("SunEC");
+			doTest("ECDSA");
+		}
+		else if (rsa) {
+			doTest("RSA");
 		}
 		else if(ecdsa){
-			ecdsaTest();
+			doTest("ECDSA");
+		}
+		else if(sunEC){
+			doTest("SunEC");
 		}
 	}
 
-	public static void ecdsaTest() throws NoSuchAlgorithmException, InvalidKeyException,
-			SignatureException, InvalidKeySpecException, CertificateException, IOException {
-		// ## ECDSA
-		createAndSignRequestECDSA();
-		if (sequential) {
-			fim = new AtomicInteger(0);
-			System.out.println("ECDSA signature test, sequential: " + toVerify);
-			loopSequentialVerify();
-			System.out.println("\n");
+	
+	public static void doTest(String whichOne) throws NoSuchAlgorithmException, InvalidKeyException,
+	SignatureException, InvalidKeySpecException, CertificateException, IOException, NoSuchProviderException {
+		switch (whichOne) {
+		case "ECDSA":
+			createAndSignRequestECDSA();
+			break;
+		case "RSA":
+			createAndSignRequestRSA();
+			break;
+		case "SunEC":
+			createAndSignRequestSunEC();
+			break;
+		default:
+			System.out.println("Shall not fall here!");
+			System.exit(1);
+			break;
 		}
-		if (parallel) {
-			System.out.println("ECDSA signature test, parallel: " + toVerify + " ## Executor: newCachedThreadPool");
+		
+		if (sequential || both) {
+			fim = new AtomicInteger(0);
+			System.out.println("\n"+whichOne+ " signature test, sequential: " + toVerify);
+			loopSequentialVerify();
+		}
+		if (parallel || both) {
+			System.out.println("\n"+whichOne+ " signature test, parallel: " + toVerify + " ## Executor: newCachedThreadPool");
 			verifierExecutor = Executors.newCachedThreadPool();
 			fim = new AtomicInteger(0);
 			loopParallelVerify();
 			verifierExecutor.shutdown();
-			System.out.println("\n");
 
-			System.out.println("ECDSA signature test, parallel: " + toVerify + " ## Executor: newFixedThreadPool");
+			System.out.println("\n"+whichOne+ " signature test, parallel: " + toVerify + " ## Executor: newFixedThreadPool");
 			fim = new AtomicInteger(0);
 			verifierExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 			loopParallelVerify();
 			verifierExecutor.shutdown();
 		}
+		System.out.println("");
+		
 	}
 
-	public static void rsaTest() throws NoSuchAlgorithmException, InvalidKeyException,
-			SignatureException, InvalidKeySpecException, CertificateException, IOException {
-		// ## RSA
-		createAndSignRequestRSA();
+	public static void createAndSignRequestSunEC() throws NoSuchAlgorithmException, InvalidKeyException,
+			SignatureException, InvalidKeySpecException, CertificateException, IOException, NoSuchProviderException {
 
-		if (sequential) {
-			System.out.println("RSA signature test, sequential: " + toVerify);
-			fim = new AtomicInteger(0);
-			loopSequentialVerify();
-			System.out.println("\n");
-		}
-		if (parallel) {
-			System.out.println("RSA signature test, parallel: " + toVerify + " ## Executor: newCachedThreadPool");
-			verifierExecutor = Executors.newCachedThreadPool();
-			fim = new AtomicInteger(0);
-			loopParallelVerify();
-			verifierExecutor.shutdown();
-			System.out.println("\n");
-
-			System.out.println("RSA signature test, parallel: " + toVerify + " ## Executor: newFixedThreadPool");
-			verifierExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-			fim = new AtomicInteger(0);
-			loopParallelVerify();
-			verifierExecutor.shutdown();
-			System.out.println("\n");
-		}
-
-	}
-
-
-	/*public static void createAndSignRequestSunEC() throws NoSuchAlgorithmException, InvalidKeyException,
-			SignatureException, InvalidKeySpecException, CertificateException, IOException {
-
-		Security.addProvider(new Sun());
-		ecdsaKeyLoader = new SunECKeyLoader(0, "", true, "SHA512withECDSA");
-		privateKey = ecdsaKeyLoader.loadPrivateKey();
-		publicKey = ecdsaKeyLoader.loadPublicKey();
+		sunECKeyLoader = new SunECKeyLoader();
+		privateKey = sunECKeyLoader.loadPrivateKey();
+		publicKey = sunECKeyLoader.loadPublicKey();
 
 		signEng = Signature.getInstance("SHA512withECDSA");
 		signEng.initSign(privateKey);
 		signEng.update(data);
 		signature = signEng.sign();
-	}*/
+	}
 	
 	public static void createAndSignRequestECDSA() throws NoSuchAlgorithmException, InvalidKeyException,
-			SignatureException, InvalidKeySpecException, CertificateException, IOException {
+			SignatureException, InvalidKeySpecException, CertificateException, IOException, NoSuchProviderException {
 
 		Security.addProvider(new BouncyCastleProvider());
-		ecdsaKeyLoader = new ECDSAKeyLoader(0, "", true, "SHA512withECDSA");
+		ecdsaKeyLoader = new ECDSAKeyLoader();
 		privateKey = ecdsaKeyLoader.loadPrivateKey();
 		publicKey = ecdsaKeyLoader.loadPublicKey();
 
@@ -180,7 +180,7 @@ public class Baseline {
 	public static void createAndSignRequestRSA() throws NoSuchAlgorithmException, InvalidKeyException,
 			SignatureException, InvalidKeySpecException, CertificateException, IOException {
 
-		rsaKeyLoader = new RSAKeyLoader(0, "", true, "SHA512withRSA");
+		rsaKeyLoader = new RSAKeyLoader();
 		publicKey = rsaKeyLoader.loadPublicKey();
 		privateKey = rsaKeyLoader.loadPrivateKey();
 
@@ -193,18 +193,21 @@ public class Baseline {
 	public static void loopSequentialVerify() throws SignatureException, InvalidKeyException {
 		fim.set(0);
 		long start = System.currentTimeMillis();
-		for (int i = 0; i <= toVerify; i++) {
+		for (int i = 0; i < toVerify; i++) {
 			signEng.initVerify(publicKey);
 			signEng.update(data);
 			boolean r = signEng.verify(signature);
-			if (fim.incrementAndGet() % cut == 0)
+			if (fim.incrementAndGet() % cut == 0 && showProgress)
 				System.out.println("Progress, verified: " + fim.get());
 		}
 		long end = System.currentTimeMillis();
 		long elapsed = (end - start) / 1000;
 		if (elapsed > 0) {
 			long opsPerSecond = toVerify / elapsed;
-			System.out.println("Elapsed (sequential): " + elapsed + "s, ### verifies / s: " + opsPerSecond);
+			System.out.println("Elapsed (sequential): " + elapsed + "s, ### verifications / s: " + opsPerSecond
+					+ ".\nTotal verifications: " + fim.get());
+		}else {
+			System.out.println("Less than one second to execute all verifications.");
 		}
 	}
 
@@ -230,14 +233,14 @@ public class Baseline {
 				} finally {
 					fim.incrementAndGet();
 					latch.countDown();
-					if (latch.getCount() % cut == 0)
+					if (latch.getCount() % cut == 0 && showProgress)
 						System.out.println("Progress, verified: " + fim.get());
 				}
 			});
 		}
 		try {
 			latch.await();
-			System.out.println("Finished...Latch: " + latch.getCount() + ", Total verifies: " + fim.get());
+			//System.out.println("Finished...Latch: " + latch.getCount() + ", Total verifies: " + fim.get());
 		} catch (InterruptedException e) {
 			e.printStackTrace();
 		}
@@ -245,9 +248,11 @@ public class Baseline {
 		long elapsed = (end - start) / 1000;
 		if (elapsed > 0) {
 			long opsPerSecond = toVerify / elapsed;
-			System.out.println("Elapsed (parallel): " + elapsed + "s, ### verifies / s: " + opsPerSecond);
+			System.out.println("Elapsed (parallel): " + elapsed + "s, ### verifications / s: " + opsPerSecond
+					+ ".\nTotal verifications: " + fim.get());
+		}else {
+			System.out.println("Less than one second to execute all verifications.");
 		}
-		verifierExecutor.shutdown();
 	}
 
 }

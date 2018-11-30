@@ -5,6 +5,5 @@
 	<classpathentry exported="true" kind="lib" path="lib/bcpkix-jdk15on-160.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/bcprov-jdk15on-160.jar"/>
 	<classpathentry exported="true" kind="lib" path="lib/commons-codec-1.5.jar"/>
-	<classpathentry kind="lib" path="lib/BFT-SMaRt.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
