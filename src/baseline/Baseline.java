@@ -57,7 +57,7 @@ public class Baseline {
 					+ "<show progress true|false> "
 					+ "<signature: all | ecdsa | rsa | sunec> "
 					+ "<type: both | parallel | sequential>");
-			System.out.println("Example: java -jar baseline.jar 100000 20000 rsa parallel");
+			System.out.println("Example: java -jar baseline.jar 100000 false rsa both");
 			System.exit(1);
 		}
 
