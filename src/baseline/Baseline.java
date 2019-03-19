@@ -145,6 +145,12 @@ public class Baseline {
 			verifierExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 			loopParallelVerify();
 			verifierExecutor.shutdown();
+			
+			System.out.println("\n"+whichOne+ " signature test, parallel: " + toVerify + " ## Executor: newStealingThreadPool");
+			fim = new AtomicInteger(0);
+			verifierExecutor = Executors.newWorkStealingPool(Runtime.getRuntime().availableProcessors());
+			loopParallelVerify();
+			verifierExecutor.shutdown();
 		}
 		System.out.println("");
 		
